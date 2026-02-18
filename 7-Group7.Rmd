@@ -1,0 +1,253 @@
+---
+title: 'Project Proposal: Analysis of NYC Flight Delays'
+author: "Jaime Valencia Lopez, Jonathan Wu, Faith Ang, Melody Lu"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+library(tidyverse)
+library(nycflights13)
+```
+
+# Section 1: Introduction
+
+## Overall Objective
+What causes airplane delays and cancellations? Airplane delays and cancellations could be due to various factors. However, the disruptions are complex and poorly understood, even though those problems create significant costs and inconvenience for all passengers, airlines, and airports involved. 
+
+This project aims to identify the key factors that influence the flight delays, cancellations, and on-time performance using the `nycflights13` dataset. Our group seeks to examine the conditions and factors, such as weather, time of day, and airport, that contribute to the most delays and cancellations. We are also developing models that predict whether a plane will be delayed and how delayed, or canceled. Through this analysis, we hope to gain a better understanding of patterns in flight delays and reliability as well as to provide insights that could improve flight efficiency and experience.
+
+## Importance and Interest
+The problem is important because flight disruptions create significant costs and inconvenience for all passengers. It is interesting to explore how different variables like weather and carrier operations intersect to create these complex patterns in a major transit hub like New York City.
+
+## Research Questions
+1. **What conditions cause the most delays?**
+2. **What are the optimal conditions for an on-time departure?**
+3. **Which airlines have the most delays?**
+4. **Which airlines take off while others don’t in cases of bad weather/not optimal conditions?**
+5. **What airports have the best on-time rate? (On-time flights / all flights). What do these airports have in common?**
+6. **Can we predict if a plane will be delayed?**
+7. **Can we predict how delayed a plane will be?**
+8. **Can we predict if a flight will be cancelled based on weather conditions? What are the most important variables to predict?**
+
+## Goals and Hypotheses
+* To identify key environmental and temporal factors influencing flight performance.
+* To compare airline resilience during non-optimal conditions.
+* To build predictive models for delay duration and cancellation probability.
+
+# Section 2: Data Description
+
+Dataset: https://nycflights13.tidyverse.org/
+
+The dataset that we are using is the "nycflights13" dataset from tidyverse. This dataset contains all flight information on all flights that departed from New York City in 2013 from the airports EWR, JFK, and LGA to places inside the United States, Puerto Rico, and the American Virgin Islands.The dataset is broken up into 5 data tables. In total there are 336,776 flights in the dataset stored in the flights data table. The weather data table contains hourly information for each airport on weather. The planes data table contains information about make and model of the planes, airport contains location information about each airport, and the airline data table contains information about abbreviations for each airline. We plan to merge these tables based on variables such as carrier, tailnum, origin, and time_hour, which are seen across tables. By joining these, we can create a complete dataset that allows us to analyze how specific weather conditions, aircraft age, and airport characteristics simultaneous impact flight punctuality and cancellations,.
+
+The variables that we will be using are mostly going to be in the weather and flights dataset. In the flights dataset we will be using scheduled departure time, actual departure time, tail number, origin, and departure delay. From the weather data table we will be using origin, month, humidity, wind direction, wind speed, precipitation, visibility, and time_hour. Those variables will help us figure out the weather conditions that are correlated with the departure delayed flights.
+
+```{r}
+colSums(is.na(flights))
+```
+
+The flight data table does have some NA values in the departure time, delay, and arrival time due to flights that ended up being cancelled. To sort those out we will create a new binary column to indicate whether the flight was cancelled or not. The data initially appears to be clean as the data has a uniform format. The two datasets will also be kept separate as combining the flight information and weather information into one dataset would make accessing more complicated. The dataset is sufficient to answer the questions as it contains the relevant information related to our questions.
+
+# Section 2.5: [Extra Credit] Exploratory Data Analysis 
+The first thing that comes to mind with EDA is to first install tidyverse and packages ```mycflights13```
+
+In order to clean the data, functions need to be created to get rid of NA values. This can be useful in the event that NA values would cause inaccuracies in the visualization of data.
+
+```{r}
+#data cleaning
+remove_na <- function(df) { ## Automatize the removal of missing observations.
+ n_obs <- nrow(df)
+ missing <- rep(FALSE, n_obs)
+  for (obs_ind in 1:n_obs) {
+    obs <- df[obs_ind, ]
+    n_missing <- sum(is.na(obs))
+    if(n_missing > 0) {
+      missing[obs_ind] <- TRUE
+    }
+  }
+  df_red <- df[!missing, ]
+  
+  return(df_red)
+}
+
+to_factors <- function(df) { ## Turn all character variables to factors.
+  n_vars <- ncol(df)
+  for (var_ind in 1:n_vars) {
+    var <- df[, var_ind]
+    if (is.character(var)) {
+      df[, var_ind] <- factor(var)
+    }
+  }
+  return(df)
+}
+```
+
+
+A new column is added which will declare which flights were delayed or on time, and the subsequent boxplot separated by carrier, which will help determine that if the flight was delayed, what the spread of delay looks like. This can provide insights on average delay, and if there are very large outliers.
+
+```{r}
+#new column status
+hour_plot_data <- flights %>%
+     mutate(status = if_else(dep_delay <= 0, "On-time", "Delayed")) %>%
+     filter(!is.na(status))
+
+flights_delayed <- filter(hour_plot_data, status == "Delayed")
+
+#geom boxplot with departure delay between airplane carriers
+ggplot(data = flights_delayed, mapping = aes(x = dep_delay, fill = carrier)) +
+  geom_boxplot() 
+```
+
+Next is a scatterplot to see correlation between how long a flight was delayed and the delay of the arrival. This can support what we already know about delayed planes also having delayed arrivals, and this can be separated by color, to see if distance traveled can be a factor in delayed flights, or if one carrier is more delayed than the others.
+
+```{r}
+#scatterplot with color = distance
+ggplot(data = flights_delayed) +
+  geom_point(mapping = aes(x = dep_delay, y = arr_delay, color = distance))
+
+#scatterplot with color = carrier
+ggplot(data = flights_delayed) +
+  geom_point(mapping = aes(x = dep_delay, y = arr_delay, color = carrier))
+
+# correlation between departure delay vs arrival delay using complete observations only
+cor(x = flights_delayed$dep_delay, y = flights_delayed$arr_delay, use = "complete.obs")
+```
+
+
+
+```{r, fig.width = 9}
+ggplot(data = flights_delayed) +
+  geom_point(mapping = aes(x = dep_delay, y = arr_delay, color = carrier)) +
+  facet_wrap(~ carrier, nrow = 4)
+```
+
+
+
+This bar graph separates how many carriers there are, and counts the number of flights associated with each carrier. This can help determine population density, and a look into which carriers are most common.
+
+```{r, fig.height= 7}
+#using hour_plot_data to see how many plane trips belonged to each carrier
+ggplot(data = hour_plot_data) +
+  geom_bar(mapping = aes(x = carrier, fill = carrier)) +
+  geom_text(stat = "count", aes(x = carrier, label = after_stat(count)), vjust = -1)
+```
+
+
+
+This same boxplot data, but further separated into “on time” and “delayed” can help answer the question of which airlines are more delayed than others, and a visual guide into seeing the distribution of “on time” versus “delayed” flights.
+
+```{r, fig.height= 7}
+#using hour_plot_data to see bargraph of planes that were on time or delayed
+ggplot(data = hour_plot_data) +
+  geom_bar(mapping = aes(x = status, fill = carrier)) +
+  geom_text(stat = "count", aes(x = status, label = after_stat(count)), vjust = 0) +
+  facet_wrap(~ carrier, nrow = 2)
+```
+
+
+
+
+# Section 3: Methodology & Analysis Plan
+
+In this section, we will detail the methodology and analysis that we will use for each of our questions. We will incorporate exploratory data analysis, visualization and predictive models in order to answer them.
+
+## Research Questions & Objectives
+
+* **1. What conditions cause the most delays?**
+    * **Plan:** We will analyse the relationships with environmental factors and delays. Here, we hope to find which of the chosen explanatory variables have the strongest relationships with flight delay.
+    * **Methods:** Join `flights` with `weather` and use a plot scatterplots between all the explanatory variables (wind_speed, temp, hour, precip, etc.). Then, we will use ggplot2 to plot the line of best fit in the scatterplots to analyze the relationships.
+    * **Objective:** To determine specific weather variables that tend to increase delays
+
+* **2. What are the optimal conditions for an on-time departure?**
+    * **Plan:** Analyze the distribution of variables during better delay performance. We will isolate flights with a `dep_delay <= 0` and compare them against delayed flights.
+    * **Methods:** For each explanatory variable, we will plot the distribution of on-time and delayed flights as a density plot. For example, we can plot for the hour of the day the distribution for both delayed and on time variables. As seen below, we can determine that the first hours of the day are best for on-time flights, while the later hours of the dat demonstrate higher rates of delayed flights.
+    
+```{r, echo = F, message=FALSE, warning=FALSE}
+hour_plot_data <- flights |>
+     mutate(status = if_else(dep_delay <= 0, "On-time", "Delayed")) |>
+     filter(!is.na(status))
+ 
+ ggplot(hour_plot_data, aes(x = hour, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+   **Objective:** Demonstrate what values for the explanatory variables have higher rates of on-time flights.
+
+* **3. Which airlines have the most delays?**
+    * **Plan:** Compare the typical delay experience across different carriers.
+    * **Methods:** Create boxplots of `dep_delay` by `carrier`. We can sort the boxplots by median in order to produce a ranking of airlines by their median delay. 
+    * **Objective:** To identify which airlines are consistently late regardless of other factors.
+
+* **4. Which airlines "perform" while others don't in bad weather?**
+    * **Plan:** Measure airline resilience by filtering the data for bad conditions (e.g., low visibility, high winds, high precipitation, etc.).
+    * **Methods:** A  faceted bar chart comparing the on-time rate of airlines in "Normal" vs. "Extreme" weather.
+    * **Objective:** Our goal is to find which airlines demonstrate more resilience in bad weather.
+
+* **5. What airports have the best on-time rate?**
+    * **Plan:** Evaluate airport efficiency by calculating the ratio of on-time flights to total flights.
+    * **Methods:** Perform a `group_by()` and `summarize()` operation to calculate the `on_time_rate`. We will visualize this against airport metadata (altitude/location) using dot plots.
+    * **Objective:** To determine if geographical or infrastructure factors contribute to better performance.
+
+* **6. Can we predict if a flight will be cancelled based on weather?**
+    * **Plan:** We will use cancellation status as a binary variables.
+    * **Methods:** Build a **Logistic Regression Model** where the target is `is.na(dep_time)`. We can use the odds ratio in order to rank predictors.
+    * **Objective:** To determine the most critical variables for predicting a total flight cancellation.
+
+* **7. Can we predict if a plane will be delayed by more than 30 minutes?**
+    * **Plan:** Classify "significant" delays to help passengers understand risk.
+    * **Methods:** Use a **Binary Classifier (Logistic Regression)** with a 30-minute threshold for being late. Evaluation includes a **Confusion Matrix** and an **ROC-AUC curve**.
+    * **Objective:** To create a predictive tool for "High-Impact" delays.
+
+* **8. Can we predict exactly how delayed a plane will be?**
+    * **Plan:** Estimate the specific number of delay minutes.
+    * **Methods:** Apply **Multiple Linear Regression**:
+    We will use a **Log Transformation** on `dep_delay` to account for the a right skewness in the data (most flights will have delays of 0-30 minutes while select others will have a high delay time) and evaluate using **Root Mean Square Error**.
+    * **Objective:** To build a regression model that quantifies expected delay based on current inputs.
+
+
+## Work Plan & Timeline
+
+| Week | Tasks |
+|:---|:---|
+| **Week 4** | Finish final project proposal and initiate Exploratory Data Analysis (EDA). |
+| **Week 5** | Complete EDA and finalize visualizations for questions 1 through 5. |
+| **Week 6** | Technical review of first 5 questions; begin drafting oral presentation. |
+| **Week 7** | Wrap up oral presentation; initiate model training for questions 6 through 8. |
+| **Week 8** | Refine predictive models; begin drafting final report and presentation slides. |
+| **Week 9** | Finalize all data visualizations and report text. |
+| **Week 10** | **Final Submission:** Presentation and Project Report. |
+
+# Possible Issues, Pitfalls, or otherwise Concerns
+This project concept focuses on the data regarding flights and their timeliness. From simple observation of the data of ```flights```, only educated inferences could be made on factors that may cause a flight to be delayed. If a plane departs from the airport behind schedule, then the arrival time will also be delayed, meaning that there is a correlation between the time of delayed departure and delayed arrival. However, does that mean that the flight scheduled behind the delayed flight also be delayed? This could result in a runaway/compounding effect. In addition, the reason behind these delays is not known at the moment, which may be found by finding if there are correlations between the data of ```flights``` and ```weather```. 
+
+One other concern was that some planes that depart from NYC and land in NYC will have data that varies differently from planes that depart from NYC and land in other locations, or planes landing in NYC from other locations. 
+
+One final concern is that some flights may have been cancelled, leading to missing data. If these data are cleaned, then there may be a chance that valuable data is lost, or if they are included in, they would affect the data in a way that does not suit the project
+
+* Backup ideas
+In the event that our idea is not as novel of an idea that we initially believed, here are a few ideas brainstormed that can be explored:
+
+### Idea 1: Seasonal Traveling Behavior
+#### Where do people go most when traveling, and when?
+An airport, much like any communal area, has times when traffic is low, and times when traffic is high. This idea will explore:
+
+1. which months, seasons, or even days with the highest amount of flights
+2. which destinations are more frequented, and when during the year? (seasonal/or monthly)
+3. What is the relationship between destinations and season, if any?
+4. Can we predict where a plane would go depending on the time of year?
+
+data used: nycflights13
+
+### Idea 2: Life in a day of an airport
+#### When is the airport most busy? And do certain Air Carriers dominate the territory of landing strips?
+A similar question to idea 1, but less about the traveling aspect, and more about the carriers. With some overlap with the objective of the pain prompt, but some differences.
+
+1. What are the busiest scheduled departure hours at each NYC airport?
+2. Which carriers are most common in NYC airports.
+3. How does wind and temperature (taken from ```weather```) affect flights? (delays or cancellations)
+4. Can we predict what days the airport will be busiest?
+
+data used: nycflights13

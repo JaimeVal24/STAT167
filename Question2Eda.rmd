@@ -1,0 +1,140 @@
+---
+title: 'Question 2: Analysis of NYC Flight Delays'
+author: "Jaime Valencia Lopez, Jonathan Wu, Faith Ang, Melody Lu"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+
+* **2. What are the optimal conditions for an on-time departure?**
+    * **Plan:** Analyze the distribution of variables during better delay performance. We will isolate flights with a `dep_delay <= 0` and compare them against delayed flights.
+    * **Methods:** For each explanatory variable, we will plot the distribution of on-time and delayed flights as a density plot. For example, we can plot for the hour of the day the distribution for both delayed and on time variables. As seen below, we can determine that the first hours of the day are best for on-time flights, while the later hours of the day demonstrate higher rates of delayed flights.
+    
+```{r, echo = F, message=FALSE, warning=FALSE}
+hour_plot_data <- flights |>
+     mutate(status = if_else(dep_delay <= 0, "On-time", "Delayed")) |>
+     filter(!is.na(status))
+ 
+ ggplot(hour_plot_data, aes(x = hour, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+
+Now we will dive into and attempt to answer this question fully in order to complete our EDA. We will look to see what variables we can analyze in the above manner.
+
+```{r}
+names(flights)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data, aes(x = air_time, fill = status)) +
+     geom_density(alpha = 0.5) +
+     coord_cartesian(xlim = c(0, 400))
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data, aes(x = distance, fill = status)) +
+     geom_density(alpha = 0.5) +
+     coord_cartesian(xlim = c(0, 3000))
+```
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data, aes(x = minute, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+```{r}
+combined_data <- flights %>%
+  left_join(weather, by = c("origin", "time_hour"))
+
+combined_data <- combined_data %>%
+  mutate(across(where(is.character), as.factor))
+
+names(combined_data)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+hour_plot_data_combined <- combined_data |>
+     mutate(status = if_else(dep_delay <= 0, "On-time", "Delayed")) |>
+     filter(!is.na(status))
+
+
+ ggplot(hour_plot_data_combined, aes(x = humid, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data_combined, aes(x = pressure, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data_combined, aes(x = visib, fill = status)) +
+     geom_density(alpha = 0.5) +
+     coord_cartesian(xlim = c(9, 10))
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data_combined, aes(x = wind_dir, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data_combined, aes(x = temp, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data_combined, aes(x = wind_gust, fill = status)) +
+     geom_density(alpha = 0.5) +
+     coord_cartesian(xlim = c(17,45))
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data_combined, aes(x = dewp, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data_combined, aes(x = precip, fill = status)) +
+     geom_density(alpha = 0.5) + 
+     coord_cartesian(xlim = c(0,0.015))
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ ggplot(hour_plot_data_combined, aes(x = wind_gust, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+```{r}
+planes_clean <- planes %>%
+  rename(year_built = year) %>%
+  mutate(across(where(is.character), as.factor)) 
+
+master_data <- flights %>%
+  left_join(weather, by = c("origin", "time_hour")) %>%
+  left_join(planes_clean, by = "tailnum")
+
+names(master_data)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+hour_plot_data_combined2 <- master_data |>
+     mutate(status = if_else(dep_delay <= 0, "On-time", "Delayed")) |>
+     filter(!is.na(status))
+
+
+ ggplot(hour_plot_data_combined2, aes(x = seats, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+```{r}
+ ggplot(hour_plot_data_combined2, aes(x = speed, fill = status)) +
+     geom_density(alpha = 0.5) +
+     coord_cartesian(xlim = c(90,250))
+```
+
+
