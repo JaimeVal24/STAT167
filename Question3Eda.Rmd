@@ -1,0 +1,15 @@
+---
+title: 'Question 3: Analysis on Carrier Delays'
+author: "Jamie Calencia Lopez, Jonathan Wu, Faith Ang, Melody Lu"
+date: "2026-02-21"
+output: html_document
+---
+
+
+
+* **3. Which airlines have the most delays?**
+    * **Plan:** Compare the typical delay experience across different carriers.
+    * **Methods:** Create boxplots of `dep_delay` by `carrier`. We can sort the boxplots by median in order to produce a ranking of airlines by their median delay. 
+    * **Objective:** To identify which airlines are consistently late regardless of other factors.
+
+
