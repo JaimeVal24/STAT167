@@ -1,0 +1,103 @@
+---
+title: "stat167-final-project-question-1"
+output: html_document
+date: "2026-02-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(tidyverse)
+library(nycflights13)
+library(dplyr)
+library(ggplot2)
+```
+Join of weather and flights 
+```{r}
+weather_impact <- flights %>%
+  filter(!is.na(dep_delay)) %>%
+  # Selecting only necessary columns to save memory
+  select(origin, year, month, day, hour, dep_delay) %>%
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour")) %>%
+  # Filter out extreme outliers for a clearer 'tipping point' view
+  filter(dep_delay > -20 & dep_delay < 200)
+```
+
+
+Plottting delays and weather conditions to find spikes/critical values.
+```{r}
+weather_impact %>%
+  # 2. Reshape it first so we have a 'metric' column
+  pivot_longer(cols = c(visib, wind_speed, precip, pressure), 
+               names_to = "metric", 
+               values_to = "value") %>%
+  # 3. Now we can filter for the factors we want to see
+  filter(metric %in% c("visib", "wind_speed", "precip", "pressure")) %>%
+  # 4. Plot
+  ggplot(aes(x = value, y = dep_delay)) +
+  geom_jitter(alpha = 0.02, color = "gray50") + 
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), color = "firebrick") +
+  facet_wrap(~metric, scales = "free_x") +
+  theme_minimal() +
+  labs(title = "Final Weather Threshold Analysis",
+       x = "Weather Reading",
+       y = "Departure Delay (min)")
+```
+
+Lots of data points so the graphs are hard to read and understand. We will resort to binning in order to make it easier to understand.
+
+```{r}
+weather_impact %>%
+  pivot_longer(cols = c(visib, wind_speed, precip, pressure), 
+               names_to = "metric", 
+               values_to = "value") %>%
+  # Group by the weather metric and round the value to create "bins"
+  group_by(metric, value = round(value, 1)) %>% 
+  summarise(avg_delay = mean(dep_delay, na.rm = TRUE)) %>%
+  filter(metric %in% c("visib", "wind_speed", "precip", "pressure")) %>%
+  ggplot(aes(x = value, y = avg_delay)) +
+  geom_line(color = "gray70") +
+  geom_point(aes(color = avg_delay), size = 2) +
+  geom_smooth(method = "gam", color = "firebrick", se = FALSE) +
+  facet_wrap(~metric, scales = "free_x") +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(title = "Average Delay by Weather Intensity",
+       subtitle = "Binning data makes the 'tipping point' spikes much more visible",
+       y = "Mean Departure Delay (min)")
+```
+
+Precipitation graph has weird and random trends due to low volume of flights with precipitation higher than .5 inch/hr
+
+```{r}
+precip_counts <- flights %>%
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour")) %>%
+  filter(precip > 0) %>%
+  # Create the same bins used in the histogram (0.02 inches)
+  mutate(precip_bin = round(precip / 0.02) * 0.02) %>%
+  group_by(precip_bin) %>%
+  summarise(n = n()) %>%
+  # 2. Filter out bins with 0 flights to fix the 'negative' log issue
+  filter(n > 0)
+
+# 3. Plot using geom_col (bars) instead of geom_histogram
+ggplot(precip_counts, aes(x = precip_bin, y = n)) +
+  geom_col(fill = "darkorange", color = "white", width = 0.02) +
+  scale_y_log10() +
+  theme_minimal() +
+  labs(
+    title = "Cleaned Flight Frequency during Precipitation",
+    subtitle = "Empty bins removed to stabilize the log scale",
+    x = "Precipitation (inches)",
+    y = "Number of Flights (Log10)"
+  )
+```
+
