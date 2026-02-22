@@ -13,3 +13,41 @@ output: html_document
     * **Objective:** To identify which airlines are consistently late regardless of other factors.
 
 
+```{r}
+#new column status
+hour_plot_data <- flights %>%
+     mutate(status = if_else(dep_delay <= 0, "On-time", "Delayed")) %>%
+     filter(!is.na(status))
+
+flights_delayed <- filter(hour_plot_data, status == "Delayed")
+
+#geom boxplot with departure delay between airplane carriers
+ggplot(data = flights_delayed, mapping = aes(x = dep_delay, fill = carrier)) +
+  geom_boxplot() 
+```
+
+```{r, fig.height= 7}
+#using hour_plot_data to see how many plane trips belonged to each carrier
+ggplot(data = hour_plot_data) +
+  geom_bar(mapping = aes(x = carrier, fill = carrier)) +
+  geom_text(stat = "count", aes(x = carrier, label = after_stat(count)), vjust = -1)
+```
+
+
+```{r, fig.height= 7}
+#using hour_plot_data to see bargraph of planes that were on time or delayed
+ggplot(data = hour_plot_data) +
+  geom_bar(mapping = aes(x = status, fill = carrier)) +
+  geom_text(stat = "count", aes(x = status, label = after_stat(count)), vjust = 0) +
+  facet_wrap(~ carrier, nrow = 2)
+```
+
+```{r, fig.height= 7}
+#using hour_plot_data to see bargraph of carriers that were most delayed
+ggplot(data = flights_delayed) +
+  geom_bar(mapping = aes(x = carrier, color = carrier, fill = carrier)) +
+  geom_text(stat = "count", aes(x = carrier, label = after_stat(count)), vjust = 0) 
+  
+```
+
+
