@@ -50,4 +50,61 @@ ggplot(data = flights_delayed) +
   
 ```
 
+```{r, echo = F, message=FALSE, warning=FALSE, fig.height= 7}
+ ggplot(hour_plot_data, aes(x = status, fill = carrier)) +
+     geom_density(alpha = 0.5)+
+    facet_wrap(~ carrier, nrow = 2)
+```
 
+```{r, echo = F, message=FALSE, warning=FALSE}
+
+flight_proportions <- flights %>%
+  filter(!is.na(dep_delay)) %>% # Remove flights with missing delay info (likely cancelled)
+  group_by(carrier) %>%
+  summarise(
+    total_flights = n(),
+    delayed_flights = sum(dep_delay > 0, na.rm = TRUE), # Count delayed flights
+    proportion_delayed = delayed_flights / total_flights # Calculate the proportion
+  ) %>%
+  arrange(desc(proportion_delayed)) # Sort by proportion_delayed in descending order
+
+# View the result
+print(flight_proportions)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE, fig.height= 7}
+
+# Plot the proportion of delayed flights by carrier
+ggplot(data = flight_proportions, aes(x = carrier, y = proportion_delayed)) +
+  geom_bar(stat = "identity", fill = "lightblue") + # Use 'identity' stat as y-values are pre-calculated
+  labs(
+    title = "Proportion of Delayed Flights by Carrier",
+    x = "Carrier",
+    y = "Proportion Delayed"
+  ) +
+  geom_text(aes(label = sprintf("%.2f", proportion_delayed))) +
+  scale_y_continuous(labels = scales::percent) + # Format y-axis as percentage
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) # Center the plot title
+
+
+```
+
+
+```{r, echo = F, message=FALSE, warning=FALSE, fig.height= 7}
+
+# Plot the proportion of delayed flights by carrier
+ggplot(data = flight_proportions, aes(x = reorder(carrier, -proportion_delayed), y = proportion_delayed)) +
+  geom_bar(stat = "identity", fill = "lightblue") + # Use 'identity' stat as y-values are pre-calculated
+  labs(
+    title = "Proportion of Delayed Flights by Carrier",
+    x = "Carrier",
+    y = "Proportion Delayed"
+  ) +
+  geom_text(aes(label = sprintf("%.2f", proportion_delayed))) +
+  scale_y_continuous(labels = scales::percent) + # Format y-axis as percentage
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) # Center the plot title
+
+
+```
