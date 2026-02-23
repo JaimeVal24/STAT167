@@ -12,7 +12,7 @@ output: html_document
     * **Methods:** Create boxplots of `dep_delay` by `carrier`. We can sort the boxplots by median in order to produce a ranking of airlines by their median delay. 
     * **Objective:** To identify which airlines are consistently late regardless of other factors.
 
-
+The first thing done is to create a boxplot of the dep_delay to see the spread of delay among airlines. However, I found that there are a lot of outliers that caused the boxplots to be skewed.
 ```{r}
 #new column status
 hour_plot_data <- flights %>%
@@ -26,6 +26,8 @@ ggplot(data = flights_delayed, mapping = aes(x = dep_delay, fill = carrier)) +
   geom_boxplot() 
 ```
 
+Going through a different approach, The number of total flights per carrier were counted.
+
 ```{r, fig.height= 7}
 #using hour_plot_data to see how many plane trips belonged to each carrier
 ggplot(data = hour_plot_data) +
@@ -34,27 +36,39 @@ ggplot(data = hour_plot_data) +
 ```
 
 
+From there, these flights were further separated by if they were on time, or delayed, as shown below.
+
 ```{r, fig.height= 7}
 #using hour_plot_data to see bargraph of planes that were on time or delayed
 ggplot(data = hour_plot_data) +
   geom_bar(mapping = aes(x = status, fill = carrier)) +
   geom_text(stat = "count", aes(x = status, label = after_stat(count)), vjust = 0) +
-  facet_wrap(~ carrier, nrow = 2)
+  facet_wrap(~ carrier, nrow = 2) +
+   labs(
+    title = "Status of Flights by Carrier",,
+    y = "Flights"
+  ) +
+  theme(plot.title = element_text(hjust = 0.5))
 ```
+
+Just for viewing, another visualization with only the number of delayed fights per carrier was made.
 
 ```{r, fig.height= 7}
 #using hour_plot_data to see bargraph of carriers that were most delayed
 ggplot(data = flights_delayed) +
   geom_bar(mapping = aes(x = carrier, color = carrier, fill = carrier)) +
-  geom_text(stat = "count", aes(x = carrier, label = after_stat(count)), vjust = 0) 
+  geom_text(stat = "count", aes(x = carrier, label = after_stat(count)), vjust = 0) +
+   labs(
+    title = "Number of Delayed Flights by Carrier",
+    x = "Carrier",
+    y = "Flights Delayed"
+  ) +
+  theme(plot.title = element_text(hjust = 0.5))
   
 ```
 
-```{r, echo = F, message=FALSE, warning=FALSE, fig.height= 7}
- ggplot(hour_plot_data, aes(x = status, fill = carrier)) +
-     geom_density(alpha = 0.5)+
-    facet_wrap(~ carrier, nrow = 2)
-```
+Above, it can be seen that of all of the carriers, UA appears to have the most delayed flights across all of the carriers. However, this does not necessarily mean that the carrier is the carrier with the most delays. This is because some carriers only have a population that is not as big as the other carriers. So the next idea is to measure the proportion of delayed flights across the different carriers. This was done using a tibble.
+
 
 ```{r, echo = F, message=FALSE, warning=FALSE}
 
@@ -71,6 +85,8 @@ flight_proportions <- flights %>%
 # View the result
 print(flight_proportions)
 ```
+
+After this, it can be seen that the carrier with the highest rate of delayed flights is not UA, but is actually WN. This can be further seen by visualization of the tibble.
 
 ```{r, echo = F, message=FALSE, warning=FALSE, fig.height= 7}
 
@@ -90,6 +106,7 @@ ggplot(data = flight_proportions, aes(x = carrier, y = proportion_delayed)) +
 
 ```
 
+This visualization below is ordered from highest proportion to lowest proportion.
 
 ```{r, echo = F, message=FALSE, warning=FALSE, fig.height= 7}
 
@@ -108,3 +125,5 @@ ggplot(data = flight_proportions, aes(x = reorder(carrier, -proportion_delayed),
 
 
 ```
+
+### So the answer to the question of which airline has the most delays, the answer is WN at 0.54, followed by FL at 0.52, and F9 at 0.5
