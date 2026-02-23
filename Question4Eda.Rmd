@@ -1,0 +1,173 @@
+---
+title: "stat167-finalproj-question4"
+author: "Jaime Valencia Lopez, Jonathan Wu, Faith Ang, Melody Lu"
+date: "2026-02-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 4
+### Which airlines take off while others don’t in cases of bad weather/ not optimal conditions? 
+
+**Plan:** Measure airline resilience by filtering the data for bad conditions (e.g. low visibility, high winder, high precipitation, etc.).
+
+**Methods:** A faceted bar chart comparing the on-time rate of airlines in "Normal" vs. "Extreme" weather.
+
+**Objective:** Our goal is to find which airlines demonstrate more resilience in bad weather
+
+```{r}
+library(tidyverse)
+library(nycflights13)
+library(dplyr)
+library(ggplot2)
+```
+
+"Extreme" Weather Definition:
+
+low visibility: `visib` < 3 
+
+strong wind: `wind_speed` > 20
+
+decent rain: `precip` > 0.1
+
+
+```{r}
+flights_weather <- flights %>%
+  left_join(weather, 
+            by = c("year", "month", "day", "hour", "origin"))
+
+flights_weather <- flights_weather %>%
+  mutate(weather_condition = case_when(
+    visib < 3 | wind_speed > 20 | precip > 0.1 ~ "Extreme",
+    TRUE ~ "Normal"
+  ))
+
+head(flights_weather)
+```
+
+
+flight counts in extreme weather
+
+```{r}
+flights_weather %>%
+  filter(weather_condition == "Extreme") %>%
+  count(carrier) %>%
+  arrange(n)
+```
+
+
+**On-time rate per airline**
+
+Here I have on-time defined as 15 minutes or less departure delay as my threshold.
+
+```{r}
+
+airline_resilience <- flights_weather %>%
+  filter(!is.na(dep_delay), !is.na(weather_condition)) %>%
+  mutate(on_time = dep_delay <= 15) %>%
+  group_by(carrier, weather_condition) %>%
+  summarise(
+    total_flights  = n(),
+    on_time_rate   = mean(on_time) * 100,
+    .groups = "drop"
+  ) %>%
+  left_join(airlines, by = "carrier") %>%           # add full airline names
+  mutate(name = str_remove(name, " Inc\\.| Co\\.| Airways| Airlines| Air Lines"))
+
+head(airline_resilience)
+```
+
+Additionally, I have minimum flights threshold as well to get a better fit.
+
+```{r}
+min_flights <- 100  
+
+reliable_carriers <- flights_weather %>%
+  filter(weather_condition == "Extreme") %>%
+  count(carrier) %>%
+  filter(n >= min_flights) %>%
+  pull(carrier)
+
+reliable_carriers
+
+airline_resilience <- airline_resilience %>%
+  filter(carrier %in% reliable_carriers)
+
+airline_resilience
+```
+
+
+**Normal and Extreme Weather On-Time Rate**
+
+Resilience drop is calculate as normal on-time rate minus extreme on-time rate.
+
+The lower the difference, the more resilient the airline is.
+
+```{r}
+resilience_drop <- airline_resilience %>%
+  select(carrier, name, weather_condition, on_time_rate) %>%
+  pivot_wider(names_from = weather_condition, values_from = on_time_rate) %>%
+  mutate(drop = Normal - Extreme) %>%
+  arrange(drop)
+
+head(resilience_drop)
+```
+
+**Resilient airline ranking**
+
+```{r, collapse=TRUE}
+carrier_order <- airline_resilience %>%
+  filter(weather_condition == "Extreme") %>%
+  arrange(desc(on_time_rate)) %>%
+  pull(carrier)
+
+head(carrier_order)
+
+airline_resilience <- airline_resilience %>%
+  mutate(carrier = factor(carrier, levels = carrier_order))
+
+head(airline_resilience)
+```
+
+**Bar Chart**
+
+```{r, fig.width=10}
+ggplot(airline_resilience, aes (x = carrier, y = on_time_rate, fill = weather_condition)) +
+  geom_col(position = position_dodge(width = 0.75), width = 0.5) +
+  geom_text(
+    aes(label = sprintf("%.0f%%", on_time_rate)),
+    position = position_dodge(width = 0.75),
+    vjust = -0.4, size = 2.8, fontface = "bold") +
+  facet_wrap(~ weather_condition, ncol = 1, scales = "free_y") +
+  scale_fill_manual(
+    values = c("Normal" = "#4A90D9", "Extreme" = "#E8523A"),
+    name   = "Weather Condition") +
+  scale_y_continuous(labels = scales::label_percent(scale = 1),
+                     limits = c(0, 105), expand = c(0, 0)) +
+  labs(title    = "Airline On-Time Departure Rate: Normal vs. Extreme Weather",
+       subtitle = "Extreme = visibility < 3 mi, wind > 20 mph, or precipitation > 0.1 in/hr\nOn-time defined as dep_delay ≤ 15 min\nCarriers arranged by Extreme-weather on-time rate (left = most resilient)",
+       x = "Carrier", y = "On-Time Rate (%)",
+       caption  = "Source: nycflights13") +
+  theme(plot.title = element_text(face = "bold", size = 14),
+        plot.subtitle = element_text(size = 10, color = "grey40"),
+        strip.text = element_text(face = "bold", size = 11),
+        legend.position = "none")
+```
+
+We can see that SkyWest and Hawaiian Airlines are the most resilient performance. They were able to be punctual under stressful weather conditions.
+
+**Resilience Ranking** (smallest drop in on-time rate = most resilient)
+
+```{r}
+resilience_drop %>%
+  select(name, Normal, Extreme, drop) %>%
+  rename(`Normal (%)` = Normal, `Extreme (%)` = Extreme,
+         `Drop (pp)` = drop) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1))) %>%
+  print()
+```
+
+
