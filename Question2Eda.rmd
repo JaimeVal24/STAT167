@@ -13,12 +13,18 @@ output:
     * **Plan:** Analyze the distribution of variables during better delay performance. We will isolate flights with a `dep_delay <= 0` and compare them against delayed flights.
     * **Methods:** For each explanatory variable, we will plot the distribution of on-time and delayed flights as a density plot. For example, we can plot for the hour of the day the distribution for both delayed and on time variables. As seen below, we can determine that the first hours of the day are best for on-time flights, while the later hours of the day demonstrate higher rates of delayed flights.
     
+```{r}
+library(patchwork)
+library(tidyverse)
+library(nycflights13)
+```
+
 ```{r, echo = F, message=FALSE, warning=FALSE}
 hour_plot_data <- flights |>
-     mutate(status = if_else(dep_delay <= 0, "On-time", "Delayed")) |>
+     mutate(status = if_else(dep_delay <= 15, "On-time", "Delayed")) |>
      filter(!is.na(status))
  
- ggplot(hour_plot_data, aes(x = hour, fill = status)) +
+p1 <- ggplot(hour_plot_data, aes(x = hour, fill = status)) +
      geom_density(alpha = 0.5)
 ```
 
@@ -30,20 +36,27 @@ names(flights)
 ```
 
 ```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data, aes(x = air_time, fill = status)) +
+ p2 <- ggplot(hour_plot_data, aes(x = air_time, fill = status)) +
      geom_density(alpha = 0.5) +
      coord_cartesian(xlim = c(0, 400))
 ```
 
 ```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data, aes(x = distance, fill = status)) +
+ p3 <- ggplot(hour_plot_data, aes(x = distance, fill = status)) +
      geom_density(alpha = 0.5) +
      coord_cartesian(xlim = c(0, 3000))
 ```
+
 ```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data, aes(x = minute, fill = status)) +
+p4 <- ggplot(hour_plot_data, aes(x = minute, fill = status)) +
      geom_density(alpha = 0.5)
 ```
+
+```{r}
+(p1 + p2) / (p3 + p4)
+```
+
+These graphs demonstrate the biggest disparity we see: hour of the day. It demonstrates that flights on-time flights are distributed more heavily on the earlier hours of the day; whereas delayed fllights seem to be centered on the later hours of the day. The rest of the variables (air time, distance and minute) do not seem to show a strong relationship with flight delays.
 
 ```{r}
 combined_data <- flights %>%
@@ -57,57 +70,43 @@ names(combined_data)
 
 ```{r, echo = F, message=FALSE, warning=FALSE}
 hour_plot_data_combined <- combined_data |>
-     mutate(status = if_else(dep_delay <= 0, "On-time", "Delayed")) |>
+     mutate(status = if_else(dep_delay <= 15, "On-time", "Delayed")) |>
      filter(!is.na(status))
 
 
- ggplot(hour_plot_data_combined, aes(x = humid, fill = status)) +
+p5 <- ggplot(hour_plot_data_combined, aes(x = humid, fill = status)) +
      geom_density(alpha = 0.5)
-```
 
-```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data_combined, aes(x = pressure, fill = status)) +
+p6 <- ggplot(hour_plot_data_combined, aes(x = pressure, fill = status)) +
      geom_density(alpha = 0.5)
-```
 
-```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data_combined, aes(x = visib, fill = status)) +
+p7 <- ggplot(hour_plot_data_combined, aes(x = visib, fill = status)) +
      geom_density(alpha = 0.5) +
      coord_cartesian(xlim = c(9, 10))
-```
 
-```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data_combined, aes(x = wind_dir, fill = status)) +
+p8 <- ggplot(hour_plot_data_combined, aes(x = wind_dir, fill = status)) +
      geom_density(alpha = 0.5)
-```
 
-
-```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data_combined, aes(x = temp, fill = status)) +
+p9 <- ggplot(hour_plot_data_combined, aes(x = temp, fill = status)) +
      geom_density(alpha = 0.5)
-```
 
-```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data_combined, aes(x = wind_gust, fill = status)) +
+p10 <- ggplot(hour_plot_data_combined, aes(x = wind_gust, fill = status)) +
      geom_density(alpha = 0.5) +
      coord_cartesian(xlim = c(17,45))
-```
 
-```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data_combined, aes(x = dewp, fill = status)) +
+p11 <- ggplot(hour_plot_data_combined, aes(x = dewp, fill = status)) +
      geom_density(alpha = 0.5)
-```
 
-```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data_combined, aes(x = precip, fill = status)) +
+p12 <- ggplot(hour_plot_data_combined, aes(x = precip, fill = status)) +
      geom_density(alpha = 0.5) + 
      coord_cartesian(xlim = c(0,0.015))
 ```
 
-```{r, echo = F, message=FALSE, warning=FALSE}
- ggplot(hour_plot_data_combined, aes(x = wind_gust, fill = status)) +
-     geom_density(alpha = 0.5)
+```{r}
+(p5 + p6) / (p7 + p8) 
+(p9 + p10) / (p11 + p12 )
 ```
+Here we can see that altough there is not a relationship as strong as that seen for hour, variables like dewp and temp demonstrate similar trends. On-time flights seem to be more common for lower temperatures, as well as for lower dew points. We can also derive a similar relationship for precipitation. and humidity, which makes sense intuitively. Pressure and visibility have the opposite relationship, with lower values signifiying a higher concentration of delayed flights.
 
 ```{r}
 planes_clean <- planes %>%
@@ -123,18 +122,72 @@ names(master_data)
 
 ```{r, echo = F, message=FALSE, warning=FALSE}
 hour_plot_data_combined2 <- master_data |>
-     mutate(status = if_else(dep_delay <= 0, "On-time", "Delayed")) |>
+     mutate(status = if_else(dep_delay <= 15, "On-time", "Delayed")) |>
      filter(!is.na(status))
 
 
- ggplot(hour_plot_data_combined2, aes(x = seats, fill = status)) +
+p14 <- ggplot(hour_plot_data_combined2, aes(x = seats, fill = status)) +
      geom_density(alpha = 0.5)
-```
 
-```{r}
- ggplot(hour_plot_data_combined2, aes(x = speed, fill = status)) +
+p15 <- ggplot(hour_plot_data_combined2, aes(x = speed, fill = status)) +
      geom_density(alpha = 0.5) +
      coord_cartesian(xlim = c(90,250))
 ```
+
+```{r}
+(p14 / p15)
+```
+In these last plots, we see a slight relationship with speed of planes and delays. Lower speeds seem to have a slighty higher concentration of on-time flights. 
+
+Next, we will analyze the relationship of two variable in regards to delayed and on-time flights.
+
+```{r}
+ggplot(hour_plot_data_combined, aes(x = hour.x, fill = status)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~month.x)
+```
+
+```{r}
+ggplot(hour_plot_data_combined, aes(x = humid, fill = status)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~origin)
+```
+
+```{r}
+hour_plot_data_combined2 |> 
+  filter(!is.na(engine)) |> 
+  ggplot(aes(x = hour.x, fill = status)) +
+    geom_density(alpha = 0.5) +
+    facet_wrap(~engine)
+```
+
+```{r}
+ggplot(hour_plot_data_combined2, aes(x = hour.x, fill = status)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~origin)
+```
+
+```{r}
+hour_plot_data_combined2 %>%
+  mutate(humid_bin = cut(humid, breaks = seq(0, 100, by = 20))) %>%
+  filter(!is.na(humid_bin)) %>%
+  ggplot(aes(x = humid_bin, y = dep_delay, fill = origin)) +
+  geom_boxplot(outlier.shape = NA) + 
+  coord_cartesian(ylim = c(-10, 40)) + 
+  facet_wrap(~origin) +
+  theme_light() +
+  labs(title = "Delay Ranges by Humidity and Origin",
+       x = "Humidity Bin", 
+       y = "Delay (Mins)") +
+  # --- SLANTING LOGIC HERE ---
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+  )
+```
+
+
+
+
+
 
 
