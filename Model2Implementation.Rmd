@@ -1,0 +1,197 @@
+---
+title: "Question6Model"
+output: pdf_document
+date: "2026-03-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load necessary libraries
+```{r cars}
+library(ggplot2)
+library(dplyr)
+library(nycflights13)
+library(broom)
+library(tidyverse)
+library(boot)
+library(themis)
+library(recipes)
+```
+
+## EDA
+
+Number of cancelled flights per New York airport
+```{r}
+flights %>%
+  filter(is.na(dep_time)) %>% # Focus only on cancellations
+  ggplot(aes(x = origin, fill = origin)) +
+  geom_bar() +
+  labs(
+    title = "Total Number of Cancelled Flights by Airport",
+    subtitle = "NYC Area Airports (2013)",
+    x = "Origin Airport",
+    y = "Number of Cancellations"
+  ) +
+  theme_minimal() +
+  guides(fill = "none") # Remove legend since X axis covers it
+```
+
+Cancellation probablilty across different weather conditions
+```{r}
+df_weather <- flights %>%
+  mutate(is_cancelled = ifelse(is.na(dep_time), 1, 0)) %>%
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour")) %>%
+  select(is_cancelled, temp, wind_speed, precip, visib, humid)
+
+# 2. Reshape and Bin
+# We use ntile() to create 10 equally sized groups (deciles) for each variable
+df_binned <- df_weather %>%
+  pivot_longer(cols = -is_cancelled, names_to = "variable", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  group_by(variable) %>%
+  mutate(bin = ntile(value, 10)) %>% 
+  group_by(variable, bin) %>%
+  summarise(
+    mean_val = mean(value),
+    cancel_rate = mean(is_cancelled),
+    .groups = 'drop'
+  )
+
+# 3. Create the Faceted Plot
+ggplot(df_binned, aes(x = mean_val, y = cancel_rate)) +
+  geom_line(color = "firebrick", size = 1) +
+  geom_point(color = "firebrick", size = 2) +
+  facet_wrap(~variable, scales = "free_x", ncol = 2) +
+  labs(
+    title = "Cancellation Probability Across Weather Deciles",
+    subtitle = "Comparing how risk increases as weather conditions change",
+    x = "Mean Value of Weather Variable (per bin)",
+    y = "Cancellation Rate (Probability)"
+  ) +
+  theme_minimal()
+```
+
+## Model Building
+
+Create a subset of the data where it is just the cancelled flights. 
+```{r}
+weather_flights <- flights %>%
+  mutate(is_cancelled = ifelse(is.na(dep_time), 1, 0)) %>%
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour"))
+weather_clean <- weather_flights %>%
+  select(is_cancelled, temp, dewp, humid, wind_speed, precip, pressure, visib) %>%
+  drop_na()
+```
+
+Initial logistic regression model
+```{r}
+log_mod <- glm(is_cancelled ~ temp + dewp + humid + wind_speed + precip + pressure + visib, 
+               data = weather_clean, 
+               family = binomial(link = "logit"))
+
+model_results <- tidy(log_mod, conf.int = TRUE) %>%
+  mutate(odds_ratio = exp(estimate)) %>%
+  arrange(desc(odds_ratio))
+
+print(model_results)
+```
+
+Important variables with low p-values: wind_speed, humidity, visibility, pressure
+Non-important variables with high p-values: precipitation, dewpoint, temperature
+Very high odds ratio indicates not converging
+
+```{r}
+summary(log_mod)
+```
+```{r}
+mlr.prob <- predict(log_mod, type = "response")
+mlr.class <- ifelse(mlr.prob > 0.15, 1, 0)
+mean(weather_clean$is_cancelled != mlr.class)
+```
+Misclassification rate is at 2.1 percent however only 2 percent of the flights in the dataset were cancelled, the model is the same as not looking at weather data at all
+
+```{r}
+cv.glm(weather_clean, log_mod, K = 10)$delta[1]
+```
+Average Weighted Error Rate of .0971 (Penalty score) Score is slightly better than guessing 
+
+```{r}
+improved_probs <- predict(log_mod, type = "response")
+improved_preds <- ifelse(improved_probs > 0.15, 1, 0)
+
+conf_table <- table(Predicted = improved_preds, Actual = weather_clean$is_cancelled)
+
+print(conf_table)
+```
+Model is terrible at predicting cancelled flights. 98% accurate but unable to determine flights that don't take off.
+
+## Improved Model
+
+Creating a new model without the unnecessary variables and with relevant variables scaled.
+```{r}
+data_to_model <- flights %>%
+  mutate(is_cancelled = if_else(is.na(dep_time), 1, 0)) %>%
+  # Joining by the keys present in both
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour")) %>%
+  select(is_cancelled, month, hour, temp, humid, wind_speed, precip, pressure, visib) %>%
+  drop_na() %>%
+  mutate(
+    # Explicitly use across() to avoid 'closure' errors
+    is_cancelled = as.factor(is_cancelled),
+    month = as.factor(as.character(month)),
+    hour = as.factor(as.character(hour))
+  )
+```
+
+Downsizing the data so its a 50/50 split of cancelled and not cancelled flights
+```{r}
+flight_recipe <- recipe(is_cancelled ~ ., data = data_to_model) %>%
+  step_downsample(is_cancelled) %>% 
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  prep()
+
+# Create the balanced training set
+balanced_train <- bake(flight_recipe, new_data = NULL)
+```
+
+Removed irrelevant variables from new model
+```{r}
+improved_model <- glm(is_cancelled ~ humid + wind_speed + pressure + visib, 
+                      data = balanced_train, 
+                      family = binomial(link = "logit"))
+
+# Check the results - you should see much more reasonable Odds Ratios now
+summary(improved_model)
+```
+```{r}
+model_results <- tidy(improved_model, conf.int = TRUE) %>%
+  mutate(odds_ratio = exp(estimate)) %>%
+  arrange(desc(odds_ratio))
+
+print(model_results)
+```
+
+
+```{r}
+probs <- predict(improved_model, newdata = data_to_model, type = "response")
+preds <- as.factor(ifelse(probs > 0.5, 1, 0))
+
+# Create the Confusion Matrix
+conf_matrix <- table(Predicted = preds, Actual = data_to_model$is_cancelled)
+print(conf_matrix)
+
+# Calculate Sensitivity (Recall)
+# (True Positives) / (Total Actual Positives)
+recall <- conf_matrix[2,2] / sum(conf_matrix[,2])
+print(paste("Recall (Cancellations caught):", round(recall, 4)))
+```
+
+```{r}
+plot(improved_model, 
+     which = 2, 
+     main = "Q-Q Plot: Model Deviance Residuals") 
+```
+
