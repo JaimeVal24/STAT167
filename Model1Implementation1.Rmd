@@ -205,12 +205,12 @@ print(optimal_values)
 ```
 
 ```{r}
-glm.optimal <- glm(dep_delay ~ poly(hour, 5, raw = TRUE) + 
+glm.optimal <- glm(dep_delay ~ poly(hour, 3, raw = TRUE) + 
                    month + 
                    carrier + 
-                   poly(visib, 4, raw = TRUE) + 
-                   poly(precip, 5, raw = TRUE) + 
-                   poly(wind_speed, 5, raw = TRUE), 
+                   poly(visib, 3, raw = TRUE) + 
+                   poly(precip, 3, raw = TRUE) + 
+                   poly(wind_speed, 2, raw = TRUE), 
                    data = flights_clean)
 
 # Perform 10-fold CV to get the MSE
@@ -223,12 +223,12 @@ cat("Optimal Model 10-fold CV MSE:", cv.optimal$delta[1], "\n")
 The optimal model 10-fold CV MSE is 1050.117 , meaning that there is a slight improvement from the previous linear model. It has decreased by around 7 points.
 
 ```{r}
-lm.optimal <- lm(dep_delay ~ poly(hour, 5, raw = TRUE) + 
+lm.optimal <- lm(dep_delay ~ poly(hour, 3, raw = TRUE) + 
                    month + 
                    carrier + 
-                   poly(visib, 4, raw = TRUE) + 
-                   poly(precip, 5, raw = TRUE) + 
-                   poly(wind_speed, 5, raw = TRUE), 
+                   poly(visib, 3, raw = TRUE) + 
+                   poly(precip, 3, raw = TRUE) + 
+                   poly(wind_speed, 2, raw = TRUE), 
                    data = flights_clean)
 
 summary(lm.optimal)
