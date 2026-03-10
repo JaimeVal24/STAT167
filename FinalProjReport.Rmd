@@ -1,0 +1,509 @@
+---
+title: "Final Project Report"
+author: "Jamie Calencia Lopez, Jonathan Wu, Faith Ang, Melody Lu"
+date: "2026-03-09"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(nycflights13)
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+library(broom)
+library(boot)
+library(themis)
+library(recipes)
+```
+
+# Introduction
+
+## Overall Objective
+
+What causes airplane delays and cancellations? Airplane delays and cancellations could be due to various factors. However, the disruptions are complex and poorly understood, even though those problems create significant costs and inconvenience for all passengers, airlines, and airports involved. 
+
+This project aims to identify the key factors that influence the flight delays, cancellations, and on-time performance using the `nycflights13` dataset. Our group seeks to examine the conditions and factors, such as weather, time of day, and airport, that contribute to the most delays and cancellations. We are also developing models that predict whether a plane will be delayed and how delayed, or canceled. Through this analysis, we hope to gain a better understanding of patterns in flight delays and reliability as well as to provide insights that could improve flight efficiency and experience.
+
+## Importance and Interest
+The problem is important because flight disruptions create significant costs and inconvenience for all passengers. It is interesting to explore how different variables like weather and carrier operations intersect to create these complex patterns in a major transit hub like New York City.
+
+## Research Questions
+1. **What conditions cause the most delays?**
+2. **What are the optimal conditions for an on-time departure?**
+3. **Which airlines have the most delays?**
+4. **Which airlines take off while others don’t in cases of bad weather/not optimal conditions?**
+5. **What airports have the best on-time rate? (On-time flights / all flights). What do these airports have in common?**
+6. **Can we predict if a plane will be delayed?**
+7. **Can we predict how delayed a plane will be?**
+8. **Can we predict if a flight will be cancelled based on weather conditions? What are the most important variables to predict?**
+
+## Goals and Hypotheses
+* To identify key environmental and temporal factors influencing flight performance.
+* To compare airline resilience during non-optimal conditions.
+* To build predictive models for delay duration and cancellation probability.
+
+
+# Data Description
+
+Dataset: https://nycflights13.tidyverse.org/
+
+The dataset that we are using is the "nycflights13" dataset from tidyverse. This dataset contains all flight information on all flights that departed from New York City in 2013 from the airports EWR, JFK, and LGA to places inside the United States, Puerto Rico, and the American Virgin Islands.The dataset is broken up into 5 data tables. In total there are 336,776 flights in the dataset stored in the flights data table. The weather data table contains hourly information for each airport on weather. The planes data table contains information about make and model of the planes, airport contains location information about each airport, and the airline data table contains information about abbreviations for each airline. We plan to merge these tables based on variables such as carrier, tailnum, origin, and time_hour, which are seen across tables. By joining these, we can create a complete dataset that allows us to analyze how specific weather conditions, aircraft age, and airport characteristics simultaneous impact flight punctuality and cancellations,.
+
+
+## Data Overview
+
+Here is a summary of the data. The variables that we will be using are mostly going to be in the weather and flights dataset. In the flights dataset we will be using scheduled departure time, actual departure time, tail number, origin, and departure delay. From the weather data table we will be using origin, month, humidity, wind direction, wind speed, precipitation, visibility, and time_hour. Those variables will help us figure out the weather conditions that are correlated with the departure delayed flights.
+
+```{r, echo = F}
+
+summary(flights)
+
+```
+
+
+
+```{r}
+colSums(is.na(flights)) #checking for N/A values in variables
+```
+
+The flight data table does have some NA values in the departure time, delay, and arrival time due to flights that ended up being cancelled. To sort those out we will create a new binary column to indicate whether the flight was cancelled or not. The data initially appears to be clean as the data has a uniform format. The two datasets will also be kept separate as combining the flight information and weather information into one dataset would make accessing more complicated. The dataset is sufficient to answer the questions as it contains the relevant information related to our questions.
+
+***
+
+\newpage
+
+# EDA
+
+## Early Exploratory Data Analysis
+
+The first thing that needs to be done is to clean the data of the NA values. This ensures that the data will cause minimal issues when working with it. In addition, a new column is added called ```status``` which will declare which flights were delayed or on time, and the subsequent boxplot separated by carrier, which will help determine that if the flight was delayed, what the spread of delay looks like. This can provide insights on average delay, and if there are very large outliers.
+
+```{r}
+
+hour_plot_data <- flights %>%
+     mutate(status = if_else(dep_delay <= 0, "On-time", "Delayed")) %>% #status
+     filter(!is.na(status))
+
+```
+
+
+This histogram separates the time of the departure delay by carrier, and will help in seeing which carriers has the most delays be seeing the spread of the plots
+
+```{r, echo = F}
+
+flights_delayed <- filter(hour_plot_data, status == "Delayed")
+
+ggplot(data = flights_delayed, aes(x = carrier, y = dep_delay, fill = carrier)) +
+  geom_boxplot(outlier.shape = NA) +
+  coord_cartesian(ylim = c(0, 250))
+
+```
+\newpage
+
+These histograms use ```hour_plot_data```, and counts how many flights there are in the data set, sorted by carriers. This helps with getting the idea with the spread of the total flights that each carrier had.
+
+```{r, fig.height= 7, echo = F}
+#using hour_plot_data to see how many plane trips belonged to each carrier
+ggplot(data = hour_plot_data) +
+  geom_bar(mapping = aes(x = carrier, fill = carrier)) +
+  geom_text(stat = "count", aes(x = carrier, label = after_stat(count)), vjust = -1)
+```
+
+\newpage
+
+This same boxplot data, but further separated into “on time” and “delayed” can help answer the question of which airlines are more delayed than others, and a visual guide into seeing the distribution of “on time” versus “delayed” flights.
+
+```{r, fig.height= 7, echo = F}
+#using hour_plot_data to see bargraph of planes that were on time or delayed
+ggplot(data = hour_plot_data) +
+  geom_bar(mapping = aes(x = status, fill = carrier)) +
+  geom_text(stat = "count", aes(x = status, label = after_stat(count)), vjust = 0, size = 3) +
+  facet_wrap(~ carrier, nrow = 2)
+```
+
+***
+\newpage
+
+## Data analysis for Research Questions
+
+1. **What conditions cause the most delays?**
+
+We were curious to ask the first question "**What conditions cause the most delays?**" so we joined the data of weather and flights together into data ```weather_impact```. These graphs are plotting delays and weather conditions to find spikes/critical values. 
+
+```{r, warning = F, echo=F}
+weather_impact <- flights %>%
+  filter(!is.na(dep_delay)) %>%
+  # Selecting only necessary columns to save memory
+  select(origin, year, month, day, hour, dep_delay) %>%
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour")) %>%
+  # Filter out extreme outliers for a clearer 'tipping point' view
+  filter(dep_delay > -20 & dep_delay < 200)
+
+weather_impact %>%
+  # 2. Reshape it first so we have a 'metric' column
+  pivot_longer(cols = c(visib, wind_speed, precip, pressure), 
+               names_to = "metric", 
+               values_to = "value") %>%
+  # 3. Now we can filter for the factors we want to see
+  filter(metric %in% c("visib", "wind_speed", "precip", "pressure")) %>%
+  # 4. Plot
+  ggplot(aes(x = value, y = dep_delay)) +
+  geom_jitter(alpha = 0.02, color = "gray50") + 
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "cs"), color = "firebrick") +
+  facet_wrap(~metric, scales = "free_x") +
+  theme_minimal() +
+  labs(title = "Final Weather Threshold Analysis",
+       x = "Weather Reading",
+       y = "Departure Delay (min)")
+```
+
+\newpage
+
+There are a lot of data points so the graphs are hard to read and understand, so we will resort to binning in order to make it easier to understand.
+
+```{r, echo = F, warning=FALSE}
+
+weather_impact %>%
+  pivot_longer(cols = c(visib, wind_speed, precip, pressure), 
+               names_to = "metric", 
+               values_to = "value") %>%
+  # Group by the weather metric and round the value to create "bins"
+  group_by(metric, value = round(value, 1)) %>% 
+  summarise(avg_delay = mean(dep_delay, na.rm = TRUE)) %>%
+  filter(metric %in% c("visib", "wind_speed", "precip", "pressure")) %>%
+  ggplot(aes(x = value, y = avg_delay)) +
+  geom_line(color = "gray70") +
+  geom_point(aes(color = avg_delay), size = 2) +
+  geom_smooth(method = "gam", color = "firebrick", se = FALSE) +
+  facet_wrap(~metric, scales = "free_x") +
+  scale_color_gradient(low = "blue", high = "red") +
+  theme_minimal() +
+  labs(title = "Average Delay by Weather Intensity",
+       subtitle = "Binning data makes the 'tipping point' spikes much more visible",
+       y = "Mean Departure Delay (min)")
+```
+\newpage
+
+The precipitation graph has weird and random trends due to low volume of flights with precipitation higher than .5 inch/hr. This is further cleaned so that the graph stabilizes.
+
+```{r, echo = F}
+precip_counts <- flights %>%
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour")) %>%
+  filter(precip > 0) %>%
+  # Create the same bins used in the histogram (0.02 inches)
+  mutate(precip_bin = round(precip / 0.02) * 0.02) %>%
+  group_by(precip_bin) %>%
+  summarise(n = n()) %>%
+  # 2. Filter out bins with 0 flights to fix the 'negative' log issue
+  filter(n > 0)
+
+# 3. Plot using geom_col (bars) instead of geom_histogram
+ggplot(precip_counts, aes(x = precip_bin, y = n)) +
+  geom_col(fill = "darkorange", color = "white", width = 0.02) +
+  scale_y_log10() +
+  theme_minimal() +
+  labs(
+    title = "Cleaned Flight Frequency during Precipitation",
+    subtitle = "Empty bins removed to stabilize the log scale",
+    x = "Precipitation (inches)",
+    y = "Number of Flights (Log10)"
+  )
+```
+### Importance
+
+This helps to 
+
+\newpage
+
+2. **What are the optimal conditions for an on-time departure?**
+
+Below, we can determine that the first hours of the day are best for on-time flights, while the later hours of the day demonstrate higher rates of delayed flights.
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+hour_plot_data <- flights |>
+     mutate(status = if_else(dep_delay <= 15, "On-time", "Delayed")) |>
+     filter(!is.na(status))
+ 
+p1 <- ggplot(hour_plot_data, aes(x = hour, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+Now we will dive into and attempt to answer this question fully in order to complete our EDA. We will look to see what variables we can analyze in the above manner.
+
+```{r}
+names(flights)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ p2 <- ggplot(hour_plot_data, aes(x = air_time, fill = status)) +
+     geom_density(alpha = 0.5) +
+     coord_cartesian(xlim = c(0, 400))
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+ p3 <- ggplot(hour_plot_data, aes(x = distance, fill = status)) +
+     geom_density(alpha = 0.5) +
+     coord_cartesian(xlim = c(0, 3000))
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+p4 <- ggplot(hour_plot_data, aes(x = minute, fill = status)) +
+     geom_density(alpha = 0.5)
+```
+
+```{r, warning = F}
+(p1 + p2) / (p3 + p4)
+```
+
+These graphs demonstrate the biggest disparity we see: hour of the day. It demonstrates that flights on-time flights are distributed more heavily on the earlier hours of the day; whereas delayed fllights seem to be centered on the later hours of the day. The rest of the variables (air time, distance and minute) do not seem to show a strong relationship with flight delays.
+
+```{r, warning = F}
+combined_data <- flights %>%
+  left_join(weather, by = c("origin", "time_hour"))
+
+combined_data <- combined_data %>%
+  mutate(across(where(is.character), as.factor))
+
+names(combined_data)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+hour_plot_data_combined <- combined_data |>
+     mutate(status = if_else(dep_delay <= 15, "On-time", "Delayed")) |>
+     filter(!is.na(status))
+
+
+p5 <- ggplot(hour_plot_data_combined, aes(x = humid, fill = status)) +
+     geom_density(alpha = 0.5)
+
+p6 <- ggplot(hour_plot_data_combined, aes(x = pressure, fill = status)) +
+     geom_density(alpha = 0.5)
+
+p7 <- ggplot(hour_plot_data_combined, aes(x = visib, fill = status)) +
+     geom_density(alpha = 0.5) +
+     coord_cartesian(xlim = c(9, 10))
+
+p8 <- ggplot(hour_plot_data_combined, aes(x = wind_dir, fill = status)) +
+     geom_density(alpha = 0.5)
+
+p9 <- ggplot(hour_plot_data_combined, aes(x = temp, fill = status)) +
+     geom_density(alpha = 0.5)
+
+p10 <- ggplot(hour_plot_data_combined, aes(x = wind_gust, fill = status)) +
+     geom_density(alpha = 0.5) +
+     coord_cartesian(xlim = c(17,45))
+
+p11 <- ggplot(hour_plot_data_combined, aes(x = dewp, fill = status)) +
+     geom_density(alpha = 0.5)
+
+p12 <- ggplot(hour_plot_data_combined, aes(x = precip, fill = status)) +
+     geom_density(alpha = 0.5) + 
+     coord_cartesian(xlim = c(0,0.015))
+```
+
+```{r, warning = F}
+(p5 + p6) / (p7 + p8) 
+(p9 + p10) / (p11 + p12 )
+```
+Here we can see that altough there is not a relationship as strong as that seen for hour, variables like dewp and temp demonstrate similar trends. On-time flights seem to be more common for lower temperatures, as well as for lower dew points. We can also derive a similar relationship for precipitation. and humidity, which makes sense intuitively. Pressure and visibility have the opposite relationship, with lower values signifiying a higher concentration of delayed flights.
+
+```{r, warning = F}
+planes_clean <- planes %>%
+  rename(year_built = year) %>%
+  mutate(across(where(is.character), as.factor)) 
+
+master_data <- flights %>%
+  left_join(weather, by = c("origin", "time_hour")) %>%
+  left_join(planes_clean, by = "tailnum")
+
+names(master_data)
+```
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+hour_plot_data_combined2 <- master_data |>
+     mutate(status = if_else(dep_delay <= 15, "On-time", "Delayed")) |>
+     filter(!is.na(status))
+
+
+p14 <- ggplot(hour_plot_data_combined2, aes(x = seats, fill = status)) +
+     geom_density(alpha = 0.5)
+
+p15 <- ggplot(hour_plot_data_combined2, aes(x = speed, fill = status)) +
+     geom_density(alpha = 0.5) +
+     coord_cartesian(xlim = c(90,250))
+```
+
+```{r, warning = F}
+(p14 / p15)
+```
+
+In these last plots, we see a slight relationship with speed of planes and delays. Lower speeds seem to have a slighty higher concentration of on-time flights. 
+
+Next, we will analyze the relationship of two variable in regards to delayed and on-time flights.
+
+```{r, warning = F}
+ggplot(hour_plot_data_combined, aes(x = hour.x, fill = status)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~month.x)
+```
+
+```{r, warning = F}
+ggplot(hour_plot_data_combined, aes(x = humid, fill = status)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~origin)
+```
+
+```{r, warning = F}
+hour_plot_data_combined2 |> 
+  filter(!is.na(engine)) |> 
+  ggplot(aes(x = hour.x, fill = status)) +
+    geom_density(alpha = 0.5) +
+    facet_wrap(~engine)
+```
+
+```{r, warning = F}
+ggplot(hour_plot_data_combined2, aes(x = hour.x, fill = status)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~origin)
+```
+
+```{r, warning = F}
+hour_plot_data_combined2 %>%
+  mutate(humid_bin = cut(humid, breaks = seq(0, 100, by = 20))) %>%
+  filter(!is.na(humid_bin)) %>%
+  ggplot(aes(x = humid_bin, y = dep_delay, fill = origin)) +
+  geom_boxplot(outlier.shape = NA) + 
+  coord_cartesian(ylim = c(-10, 40)) + 
+  facet_wrap(~origin) +
+  theme_light() +
+  labs(title = "Delay Ranges by Humidity and Origin",
+       x = "Humidity Bin", 
+       y = "Delay (Mins)") +
+  # --- SLANTING LOGIC HERE ---
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+  )
+```
+
+\newpage
+
+3. **Which airlines have the most delays?**
+
+The first thing done is to create a boxplot of the dep_delay to see the spread of delay among airlines like from the initial EDA. However, I found that there are a lot of outliers that caused the boxplots to be skewed.
+
+Going through a different approach, The number of total flights per carrier were counted.
+
+```{r, fig.height= 7, echo = F}
+#using hour_plot_data to see how many plane trips belonged to each carrier
+ggplot(data = hour_plot_data) +
+  geom_bar(mapping = aes(x = carrier, fill = carrier)) +
+  geom_text(stat = "count", aes(x = carrier, label = after_stat(count)), vjust = -1)
+```
+
+
+From there, these flights were further separated by if they were on time, or delayed, as shown below.
+
+```{r, fig.height= 7, echo = F}
+#using hour_plot_data to see bargraph of planes that were on time or delayed
+ggplot(data = hour_plot_data) +
+  geom_bar(mapping = aes(x = status, fill = carrier)) +
+  geom_text(stat = "count", aes(x = status, label = after_stat(count)), vjust = 0, size = 3) +
+  facet_wrap(~ carrier, nrow = 2) +
+   labs(
+    title = "Status of Flights by Carrier",,
+    y = "Flights"
+  ) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Just for viewing, another visualization with only the number of delayed fights per carrier was made.
+
+```{r, fig.height= 7, echo = F}
+#using hour_plot_data to see bargraph of carriers that were most delayed
+ggplot(data = flights_delayed) +
+  geom_bar(mapping = aes(x = carrier, color = carrier, fill = carrier)) +
+  geom_text(stat = "count", aes(x = carrier, label = after_stat(count)), vjust = 0) +
+   labs(
+    title = "Number of Delayed Flights by Carrier",
+    x = "Carrier",
+    y = "Flights Delayed"
+  ) +
+  theme(plot.title = element_text(hjust = 0.5))
+  
+```
+
+Above, it can be seen that of all of the carriers, UA appears to have the most delayed flights across all of the carriers. However, this does not necessarily mean that the carrier is the carrier with the most delays. This is because some carriers only have a population that is not as big as the other carriers. So the next idea is to measure the proportion of delayed flights across the different carriers. This was done using a tibble.
+
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+
+flight_proportions <- flights %>%
+  filter(!is.na(dep_delay)) %>% # Remove flights with missing delay info (likely cancelled)
+  group_by(carrier) %>%
+  summarise(
+    total_flights = n(),
+    delayed_flights = sum(dep_delay > 0, na.rm = TRUE), # Count delayed flights
+    proportion_delayed = delayed_flights / total_flights # Calculate the proportion
+  ) %>%
+  arrange(desc(proportion_delayed)) # Sort by proportion_delayed in descending order
+
+# View the result
+print(flight_proportions)
+```
+
+After this, it can be seen that the carrier with the highest rate of delayed flights is not UA, but is actually WN. This can be further seen by visualization of the tibble.
+
+```{r, echo = F, message=FALSE, warning=FALSE, fig.height= 7}
+
+# Plot the proportion of delayed flights by carrier
+ggplot(data = flight_proportions, aes(x = carrier, y = proportion_delayed)) +
+  geom_bar(stat = "identity", fill = "lightblue") + # Use 'identity' stat as y-values are pre-calculated
+  labs(
+    title = "Proportion of Delayed Flights by Carrier",
+    x = "Carrier",
+    y = "Proportion Delayed"
+  ) +
+  geom_text(aes(label = sprintf("%.2f", proportion_delayed))) +
+  scale_y_continuous(labels = scales::percent) + # Format y-axis as percentage
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) # Center the plot title
+
+
+```
+
+This visualization below is ordered from highest proportion to lowest proportion.
+
+```{r, echo = F, message=FALSE, warning=FALSE, fig.height= 7}
+
+# Plot the proportion of delayed flights by carrier
+ggplot(data = flight_proportions, aes(x = reorder(carrier, -proportion_delayed), y = proportion_delayed)) +
+  geom_bar(stat = "identity", fill = "lightblue") + # Use 'identity' stat as y-values are pre-calculated
+  labs(
+    title = "Proportion of Delayed Flights by Carrier",
+    x = "Carrier",
+    y = "Proportion Delayed"
+  ) +
+  geom_text(aes(label = sprintf("%.2f", proportion_delayed))) +
+  scale_y_continuous(labels = scales::percent) + # Format y-axis as percentage
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) # Center the plot title
+
+
+```
+
+\newpage
+
+# Modeling
+
+## Model 1: Forward Selection Model with RSSn
+- Model specification
+- Interpretation of coefficients
+
+## Model 2: Logistic Regression
+- Model fitting
+- Important predictors
+
