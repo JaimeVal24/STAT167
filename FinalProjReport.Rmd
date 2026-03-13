@@ -1,6 +1,6 @@
 ---
 title: "Final Project Report"
-author: "Jamie Calencia Lopez, Jonathan Wu, Faith Ang, Melody Lu"
+author: "Jamie Valencia Lopez, Jonathan Wu, Faith Ang, Melody Lu"
 date: "2026-03-09"
 output:
   pdf_document: default
