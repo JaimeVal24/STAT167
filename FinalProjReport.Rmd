@@ -18,6 +18,9 @@ library(broom)
 library(boot)
 library(themis)
 library(recipes)
+
+# Set the random seed for reproducibility
+set.seed(167)
 ```
 
 # Introduction
@@ -529,7 +532,7 @@ head(flights_weather)
 
 flight counts in extreme weather
 
-```{r, echo = F}}
+```{r, echo = F}
 flights_weather %>%
   filter(weather_condition == "Extreme") %>%
   count(carrier) %>%
@@ -612,7 +615,7 @@ head(airline_resilience)
 
 **Bar Chart**
 
-```{r, fig.width=10, echo = F}}
+```{r, fig.width=10, echo = F}
 ggplot(airline_resilience, aes (x = carrier, y = on_time_rate, fill = weather_condition)) +
   geom_col(position = position_dodge(width = 0.75), width = 0.5) +
   geom_text(
@@ -644,7 +647,421 @@ ggplot(airline_resilience, aes (x = carrier, y = on_time_rate, fill = weather_co
 - Model specification
 - Interpretation of coefficients
 
+Here, we will implement a linear regression model to predict the amount of delay a flight will have (arr_delay). We use a custom forward selection strategy to identify key predictors and evaluate the model using 10-fold cross-validation.
+
+Here we create the functions to calculate the MSE, as well as forward selection with lowest RSS.
+
+```{r}
+# Function to calculate Mean Squared Error (MSE)
+calculateMSE <- function(y, yhat) {
+  residuals <- y - yhat
+  mse <- mean(residuals^2)
+  return(mse)
+}
+
+# Automated Forward Selection Function
+# This function picks the top 'n_vars' predictors based on the lowest RSS.
+forward_selection <- function(data, response, n_vars) {
+  all_predictors <- names(data)[names(data) != response]
+  selected_vars <- c()
+  
+  # Iterate one time in the outer loop for each variable
+  for (i in 1:n_vars) {
+    best_rss <- Inf
+    best_var <- NULL
+    remaining_vars <- setdiff(all_predictors, selected_vars)
+    
+    # Inner loop will iterate through all the variables
+    for (var in remaining_vars) {
+      # Choose the variable that has the lowest RSS value for the model
+      formula_vars <- c(selected_vars, var)
+      current_formula <- as.formula(paste(response, "~", 
+                                    paste(formula_vars, collapse = " + ")))
+      
+      # Fit model and calculate RSS
+      fit <- lm(current_formula, data = data)
+      current_rss <- sum(resid(fit)^2)
+      
+      # Update the best variable for this iteration
+      if (current_rss < best_rss) {
+        best_rss <- current_rss
+        best_var <- var
+      }
+    }
+    selected_vars <- c(selected_vars, best_var)
+    cat("Step", i, ": Added", best_var, "(RSS:", round(best_rss, 2), ")\n")
+  }
+  return(selected_vars)
+}
+```
+
+In this cell, we join all the tables to get the most comprehensive model possible. 
+
+```{r}
+# Join all the tables and clean the data
+flights_clean <- flights |>
+  # Join the weather table by origin, year, month, day and hour
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour")) |>
+  # Join the planes table by tailnum
+  inner_join(planes, by = "tailnum", suffix = c("_flight", "_plane")) |>
+  filter(dep_delay < 240) |> 
+  # Add carrier and origin to the select list
+  select(dep_delay, hour, temp, visib, wind_speed, precip, 
+         seats, distance, origin, carrier, month) |>
+  # Convert to factors so the lm() function treats them as categories
+  mutate(
+    origin = as.factor(origin),
+    carrier = as.factor(carrier),
+    month = as.factor(month)
+  ) |>
+  drop_na()
+```
+
+Retroactive EDA: Here, we visualize the relationship of the variables we will choose for our model in order to get a better understanding of their relationship with the response variable. Looking at each variable individually, we see that their relationship is not inherently linear, which is why we will need make use of polynomial regression. 
+
+```{r}
+# We "pivot" the explanatory variables into one column so they can be colored
+plot_data <- flights_clean |>
+  select(dep_delay, hour, month, carrier, visib, precip, wind_speed) |>
+  # Convert everything to numeric for the scatter plot (except dep_delay)
+  mutate(across(-dep_delay, as.numeric)) |>
+  pivot_longer(
+    cols = c(hour, month, carrier, visib, precip, wind_speed),
+    names_to = "variable",
+    values_to = "value"
+  )
+
+# 2. Create the single scatter plot
+ggplot(plot_data, aes(x = value, y = dep_delay, color = variable)) +
+  geom_smooth(alpha = 0.4) + # Alpha helps with overlapping points
+  labs(
+    title = "Explanatory Variables vs. Departure Delay",
+    x = "Variable Value",
+    y = "Departure Delay (minutes)",
+    color = "Variable Name"
+  ) +
+  theme_minimal() +
+  coord_cartesian(xlim = c(0,25))
+```
+
+
+**Section 1: Forward Selection Model with RSS**
+
+Here, we will call the forward selection model with the top 6 variables to predict departure delay. The adjusted R-squared value begins to plateu after adding more than 6 variables to the model.
+
+```{r}
+# Run the forward selection to get the top 3 variables
+top_vars <- forward_selection(data = flights_clean, 
+                             response = "dep_delay", 
+                             n_vars = 6)
+
+cat("\nTop selected variables:", paste(top_vars, collapse = ", "), "\n")
+```
+
+Here, we can calculate the weighted 10-fold Cross Validation for our model.
+```{r}
+# Setup for 10-Fold CV
+formula_cv <- as.formula(paste("dep_delay ~", paste(top_vars, collapse = " + ")))
+
+# 2. Fit the model using glm()
+glm.adv <- glm(formula_cv, data = flights_clean)
+
+# 3. Run the 10-fold Cross-Validation
+cv.result <- cv.glm(flights_clean, glm.adv, K = 10)
+
+# 4. Extract raw CV estimate (MSE)
+cat("cv.glm Weighted CV MSE:", round(cv.result$delta[1], 6), "\n")
+```
+
+Finally display the summary of our model.
+
+```{r}
+final_formula <- as.formula(paste("dep_delay ~", paste(top_vars, collapse = " + ")))
+lm_final <- lm(final_formula, data = flights_clean)
+
+summary(lm_final)
+```
+
+We have a pretty low Adjusted R-squared value of 0.09691, meaning that we can only explain a bit lower than 10% of the variance in our response variable. The MSE of 1057.256 means that there is an average error of around 32.5 minutes per prediction. We have established that the relationship between the explanatory variables and the response variable is not necessary linear, therefore, we will implement a model in which we use polynomial regression to augment our model prediction power.
+
+**Section 2: Polynomial Regression GAM Model**
+
+Here, we will use the 10-fold validation model, processing the variables that we have already selected with the best RSS values. We take a look at each variable and test their 10-fold CV MSE value from powers 1 through 5 and select the power that has the lowest MSE value.
+
+```{r}
+# List of numeric variables to test
+vars_to_test <- c("hour", "visib", "wind_speed", "precip")
+max_poly <- 5
+
+# Create a data frame to store results for plotting
+cv_results_df <- data.frame()
+
+for (v in vars_to_test) {
+  cat("Processing variable:", v, "\n")
+  
+  for (d in 1:max_poly) {
+    # Dynamically create the formula: dep_delay ~ poly(var, d)
+    formula_str <- as.formula(paste("dep_delay ~ poly(", v, ",", d, ")"))
+    
+    # Fit the GLM
+    fit <- glm(formula_str, data = flights_clean)
+    
+    # Calculate 10-fold CV
+    # Note: Use a seed for reproducibility if comparing small differences
+    set.seed(123)
+    cv_err <- cv.glm(flights_clean, fit, K = 10)$delta[1]
+    
+    # Save result
+    cv_results_df <- rbind(cv_results_df, data.frame(Variable = v, Degree = d, MSE = cv_err))
+  }
+}
+
+# Find the degree with the minimum MSE for each variable
+optimal_values <- cv_results_df %>%
+  group_by(Variable) %>%
+  filter(MSE == min(MSE)) %>%
+  select(Variable, Degree, MSE)
+
+print(optimal_values)
+```
+
+```{r}
+glm.optimal <- glm(dep_delay ~ poly(hour, 3, raw = TRUE) + 
+                   month + 
+                   carrier + 
+                   poly(visib, 3, raw = TRUE) + 
+                   poly(precip, 3, raw = TRUE) + 
+                   poly(wind_speed, 2, raw = TRUE), 
+                   data = flights_clean)
+
+# Perform 10-fold CV to get the MSE
+cv.optimal <- cv.glm(flights_clean, glm.optimal, K = 10)
+
+# Output the result
+cat("Optimal Model 10-fold CV MSE:", cv.optimal$delta[1], "\n")
+```
+
+The optimal model 10-fold CV MSE is 1050.117 , meaning that there is a slight improvement from the previous linear model. It has decreased by around 7 points.
+
+```{r}
+lm.optimal <- lm(dep_delay ~ poly(hour, 3, raw = TRUE) + 
+                   month + 
+                   carrier + 
+                   poly(visib, 3, raw = TRUE) + 
+                   poly(precip, 3, raw = TRUE) + 
+                   poly(wind_speed, 2, raw = TRUE), 
+                   data = flights_clean)
+
+summary(lm.optimal)
+```
+
+Additionally, we see here that the adjusted R-Squared value has increased to 0.1031 from the previous 0.09691; we can now explain over 10% of the variance in our response variable.
+
+
+```{r}
+ggplot(cv_results_df, aes(x = Degree, y = MSE)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "darkblue", size = 2) +
+  facet_wrap(~Variable, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "10-Fold CV MSE vs. Polynomial Degree",
+       subtitle = "The 'Optimal Degree' is the lowest point on each curve",
+       x = "Polynomial Degree",
+       y = "Mean Squared Error (MSE)")
+```
+
+
+
+```{r}
+# Set up a 2x2 grid to see all plots at once
+par(mfrow = c(2, 2))
+
+# Generate diagnostic plots
+dev.new(width=10, height=8)
+plot(lm.optimal)
+
+# Reset grid
+par(mfrow = c(1, 1))
+```
+
+
+While we were able to achieve better results while using polynomial multiple regression, we still were only to explain around 10% of the variance with our model. We also note that the residuals indicate that our model was better at interpreting lower department delay numbers. While not perfect, this model can be used to predict general patterns of delay. More data and more complex models might be necessary to produce stronger predictions
+
 ## Model 2: Logistic Regression
 - Model fitting
 - Important predictors
+
+Number of cancelled flights per New York airport
+```{r}
+flights %>%
+  filter(is.na(dep_time)) %>% # Focus only on cancellations
+  ggplot(aes(x = origin, fill = origin)) +
+  geom_bar() +
+  labs(
+    title = "Total Number of Cancelled Flights by Airport",
+    subtitle = "NYC Area Airports (2013)",
+    x = "Origin Airport",
+    y = "Number of Cancellations"
+  ) +
+  theme_minimal() +
+  guides(fill = "none") # Remove legend since X axis covers it
+```
+
+Cancellation probablilty across different weather conditions
+```{r}
+df_weather <- flights %>%
+  mutate(is_cancelled = ifelse(is.na(dep_time), 1, 0)) %>%
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour")) %>%
+  select(is_cancelled, temp, wind_speed, precip, visib, humid)
+
+# 2. Reshape and Bin
+# We use ntile() to create 10 equally sized groups (deciles) for each variable
+df_binned <- df_weather %>%
+  pivot_longer(cols = -is_cancelled, names_to = "variable", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  group_by(variable) %>%
+  mutate(bin = ntile(value, 10)) %>% 
+  group_by(variable, bin) %>%
+  summarise(
+    mean_val = mean(value),
+    cancel_rate = mean(is_cancelled),
+    .groups = 'drop'
+  )
+
+# 3. Create the Faceted Plot
+ggplot(df_binned, aes(x = mean_val, y = cancel_rate)) +
+  geom_line(color = "firebrick", size = 1) +
+  geom_point(color = "firebrick", size = 2) +
+  facet_wrap(~variable, scales = "free_x", ncol = 2) +
+  labs(
+    title = "Cancellation Probability Across Weather Deciles",
+    subtitle = "Comparing how risk increases as weather conditions change",
+    x = "Mean Value of Weather Variable (per bin)",
+    y = "Cancellation Rate (Probability)"
+  ) +
+  theme_minimal()
+```
+
+## Model Building
+
+Create a subset of the data where it is just the cancelled flights. 
+```{r}
+weather_flights <- flights %>%
+  mutate(is_cancelled = ifelse(is.na(dep_time), 1, 0)) %>%
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour"))
+weather_clean <- weather_flights %>%
+  select(is_cancelled, temp, dewp, humid, wind_speed, precip, pressure, visib) %>%
+  drop_na()
+```
+
+Initial logistic regression model
+```{r}
+log_mod <- glm(is_cancelled ~ temp + dewp + humid + wind_speed + precip + pressure + visib, 
+               data = weather_clean, 
+               family = binomial(link = "logit"))
+
+model_results <- tidy(log_mod, conf.int = TRUE) %>%
+  mutate(odds_ratio = exp(estimate)) %>%
+  arrange(desc(odds_ratio))
+
+print(model_results)
+```
+
+Important variables with low p-values: wind_speed, humidity, visibility, pressure
+Non-important variables with high p-values: precipitation, dewpoint, temperature
+Very high odds ratio indicates not converging
+
+```{r}
+summary(log_mod)
+```
+```{r}
+mlr.prob <- predict(log_mod, type = "response")
+mlr.class <- ifelse(mlr.prob > 0.15, 1, 0)
+mean(weather_clean$is_cancelled != mlr.class)
+```
+Misclassification rate is at 2.1 percent however only 2 percent of the flights in the dataset were cancelled, the model is the same as not looking at weather data at all
+
+```{r}
+cv.glm(weather_clean, log_mod, K = 10)$delta[1]
+```
+Average Weighted Error Rate of .0971 (Penalty score) Score is slightly better than guessing 
+
+```{r}
+improved_probs <- predict(log_mod, type = "response")
+improved_preds <- ifelse(improved_probs > 0.15, 1, 0)
+
+conf_table <- table(Predicted = improved_preds, Actual = weather_clean$is_cancelled)
+
+print(conf_table)
+```
+Model is terrible at predicting cancelled flights. 98% accurate but unable to determine flights that don't take off.
+
+## Improved Model
+
+Creating a new model without the unnecessary variables and with relevant variables scaled.
+```{r}
+data_to_model <- flights %>%
+  mutate(is_cancelled = if_else(is.na(dep_time), 1, 0)) %>%
+  # Joining by the keys present in both
+  inner_join(weather, by = c("origin", "year", "month", "day", "hour")) %>%
+  select(is_cancelled, month, hour, temp, humid, wind_speed, precip, pressure, visib) %>%
+  drop_na() %>%
+  mutate(
+    # Explicitly use across() to avoid 'closure' errors
+    is_cancelled = as.factor(is_cancelled),
+    month = as.factor(as.character(month)),
+    hour = as.factor(as.character(hour))
+  )
+```
+
+Downsizing the data so its a 50/50 split of cancelled and not cancelled flights
+```{r}
+flight_recipe <- recipe(is_cancelled ~ ., data = data_to_model) %>%
+  step_downsample(is_cancelled) %>% 
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  prep()
+
+# Create the balanced training set
+balanced_train <- bake(flight_recipe, new_data = NULL)
+```
+
+Removed irrelevant variables from new model
+```{r}
+improved_model <- glm(is_cancelled ~ humid + wind_speed + pressure + visib, 
+                      data = balanced_train, 
+                      family = binomial(link = "logit"))
+
+# Check the results - you should see much more reasonable Odds Ratios now
+summary(improved_model)
+```
+```{r}
+model_results <- tidy(improved_model, conf.int = TRUE) %>%
+  mutate(odds_ratio = exp(estimate)) %>%
+  arrange(desc(odds_ratio))
+
+print(model_results)
+```
+
+
+```{r}
+probs <- predict(improved_model, newdata = data_to_model, type = "response")
+preds <- as.factor(ifelse(probs > 0.5, 1, 0))
+
+# Create the Confusion Matrix
+conf_matrix <- table(Predicted = preds, Actual = data_to_model$is_cancelled)
+print(conf_matrix)
+
+# Calculate Sensitivity (Recall)
+# (True Positives) / (Total Actual Positives)
+recall <- conf_matrix[2,2] / sum(conf_matrix[,2])
+print(paste("Recall (Cancellations caught):", round(recall, 4)))
+```
+
+```{r}
+plot(improved_model, 
+     which = 2, 
+     main = "Q-Q Plot: Model Deviance Residuals") 
+```
+
 
