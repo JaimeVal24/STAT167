@@ -643,13 +643,14 @@ ggplot(airline_resilience, aes (x = carrier, y = on_time_rate, fill = weather_co
 
 # Modeling
 
-## Model 1: Forward Selection Model with RSSn
+## Model 1: Forward Selection Model with RSS and Polynomial Regression
 - Model specification
 - Interpretation of coefficients
 
 Here, we will implement a linear regression model to predict the amount of delay a flight will have (arr_delay). We use a custom forward selection strategy to identify key predictors and evaluate the model using 10-fold cross-validation.
 
-Here we create the functions to calculate the MSE, as well as forward selection with lowest RSS.
+Here we create the functions to calculate the MSE, as well as forward selection with lowest RSS. We are working with the weather, planes and flights tables.
+
 
 ```{r}
 # Function to calculate Mean Squared Error (MSE)
@@ -695,9 +696,7 @@ forward_selection <- function(data, response, n_vars) {
 }
 ```
 
-In this cell, we join all the tables to get the most comprehensive model possible. 
-
-```{r}
+```{r, echo = FALSE}
 # Join all the tables and clean the data
 flights_clean <- flights |>
   # Join the weather table by origin, year, month, day and hour
@@ -717,10 +716,9 @@ flights_clean <- flights |>
   drop_na()
 ```
 
-Retroactive EDA: Here, we visualize the relationship of the variables we will choose for our model in order to get a better understanding of their relationship with the response variable. Looking at each variable individually, we see that their relationship is not inherently linear, which is why we will need make use of polynomial regression. 
+Retroactive EDA: Here, we visualize the relationship of the variables we will choose for our model in order to get a better understanding of their relationship with the response variable. Looking at each variable individually, we see that their relationship is not inherently linear, which is why we will need make use of polynomial regression in the future.
 
-```{r}
-# We "pivot" the explanatory variables into one column so they can be colored
+```{r, echo = FALSE}
 plot_data <- flights_clean |>
   select(dep_delay, hour, month, carrier, visib, precip, wind_speed) |>
   # Convert everything to numeric for the scatter plot (except dep_delay)
@@ -731,7 +729,7 @@ plot_data <- flights_clean |>
     values_to = "value"
   )
 
-# 2. Create the single scatter plot
+# Create the single scatter plot
 ggplot(plot_data, aes(x = value, y = dep_delay, color = variable)) +
   geom_smooth(alpha = 0.4) + # Alpha helps with overlapping points
   labs(
@@ -747,7 +745,7 @@ ggplot(plot_data, aes(x = value, y = dep_delay, color = variable)) +
 
 **Section 1: Forward Selection Model with RSS**
 
-Here, we will call the forward selection model with the top 6 variables to predict departure delay. The adjusted R-squared value begins to plateu after adding more than 6 variables to the model.
+Here, we will call the forward selection model with the top 6 variables to predict departure delay. The adjusted R-squared value begins to plateau after adding more than 6 variables to the model. For now, we will work under the assumption that all the relationships between the variables are linear, and we will work on the optimal degree in the next section.
 
 ```{r}
 # Run the forward selection to get the top 3 variables
@@ -759,7 +757,7 @@ cat("\nTop selected variables:", paste(top_vars, collapse = ", "), "\n")
 ```
 
 Here, we can calculate the weighted 10-fold Cross Validation for our model.
-```{r}
+```{r, echo = FALSE}
 # Setup for 10-Fold CV
 formula_cv <- as.formula(paste("dep_delay ~", paste(top_vars, collapse = " + ")))
 
@@ -786,9 +784,9 @@ We have a pretty low Adjusted R-squared value of 0.09691, meaning that we can on
 
 **Section 2: Polynomial Regression GAM Model**
 
-Here, we will use the 10-fold validation model, processing the variables that we have already selected with the best RSS values. We take a look at each variable and test their 10-fold CV MSE value from powers 1 through 5 and select the power that has the lowest MSE value.
+Here, we will use the 10-fold validation model, processing the variables that we have already selected with the best RSS values. We take a look at each variable and test their 10-fold CV MSE value from powers 1 through 5 and select the power that has the lowest MSE value. However, to prevent  overfitting and to create a more genreal model with less bias, we will use the elbow method in order to pick the most optimal degree for our variables. This will allow us to still increase the performance of the model while mantaining some generarily for unseen data.
 
-```{r}
+```{r, echo = FALSE}
 # List of numeric variables to test
 vars_to_test <- c("hour", "visib", "wind_speed", "precip")
 max_poly <- 5
@@ -807,8 +805,6 @@ for (v in vars_to_test) {
     fit <- glm(formula_str, data = flights_clean)
     
     # Calculate 10-fold CV
-    # Note: Use a seed for reproducibility if comparing small differences
-    set.seed(123)
     cv_err <- cv.glm(flights_clean, fit, K = 10)$delta[1]
     
     # Save result
@@ -825,7 +821,7 @@ optimal_values <- cv_results_df %>%
 print(optimal_values)
 ```
 
-```{r}
+```{r, echo = FALSE}
 glm.optimal <- glm(dep_delay ~ poly(hour, 3, raw = TRUE) + 
                    month + 
                    carrier + 
@@ -858,7 +854,8 @@ summary(lm.optimal)
 Additionally, we see here that the adjusted R-Squared value has increased to 0.1031 from the previous 0.09691; we can now explain over 10% of the variance in our response variable.
 
 
-```{r}
+This plot demonstrates how we picked the optimal degree for the model. We choose the degrees based on the elbow method: 3 for `visib`, `hour` and `precip`. 2 for `wind_speed`.
+```{r, echo = FALSE}
 ggplot(cv_results_df, aes(x = Degree, y = MSE)) +
   geom_line(color = "steelblue", size = 1) +
   geom_point(color = "darkblue", size = 2) +
@@ -872,20 +869,15 @@ ggplot(cv_results_df, aes(x = Degree, y = MSE)) +
 
 
 
-```{r}
-# Set up a 2x2 grid to see all plots at once
-par(mfrow = c(2, 2))
-
+```{r, echo = FALSE}
 # Generate diagnostic plots
-dev.new(width=10, height=8)
 plot(lm.optimal)
 
-# Reset grid
-par(mfrow = c(1, 1))
 ```
 
+**Model 1 Conclusion**
 
-While we were able to achieve better results while using polynomial multiple regression, we still were only to explain around 10% of the variance with our model. We also note that the residuals indicate that our model was better at interpreting lower department delay numbers. While not perfect, this model can be used to predict general patterns of delay. More data and more complex models might be necessary to produce stronger predictions
+While we were able to achieve better results while using polynomial multiple regression, we still were only to explain around 10% of the variance with our model. We also note that the residuals indicate that our model was better at interpreting lower department delay numbers. While not perfect, this model can be used to predict general patterns of delay. More data and more complex models might be necessary to produce stronger predictions. There are some underlying relationships between models that could be causing the accuracy of the model to be significantly lower, including collinearity between the weather variables (visibility, precipitation, and wind speed are likely to be related). Doing so can allow us to fit the model with the explicit variable relationships in mind. Additionally, we could build a model that predicts shorter delays. As we see from the residual Q-Q plot, our model is able to predict smaller delays at a much better rate.
 
 ## Model 2: Logistic Regression
 - Model fitting
