@@ -216,9 +216,9 @@ ggplot(precip_counts, aes(x = precip_bin, y = n)) +
     y = "Number of Flights (Log10)"
   )
 ```
-### Importance
+Importance
 
-This helps to 
+This helps to find the threshold, or the kind of weather that is more likely for a plane to be delayed. This contributes to the later question on if it is possible to predict a plane to be delayed based on weather factors.
 
 \newpage
 
@@ -637,6 +637,7 @@ ggplot(airline_resilience, aes (x = carrier, y = on_time_rate, fill = weather_co
         strip.text = element_text(face = "bold", size = 11),
         legend.position = "none")
 ```
+Importance: This gives an idea on the rate of departure based on the weather, and notice that there are less rates of on-time departure when the weather is considered extreme.
 
 
 \newpage
