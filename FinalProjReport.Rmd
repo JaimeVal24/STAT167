@@ -892,7 +892,7 @@ While we were able to achieve better results while using polynomial multiple reg
 - Important predictors
 
 Number of cancelled flights per New York airport
-```{r}
+```{r, echo = F}
 flights %>%
   filter(is.na(dep_time)) %>% # Focus only on cancellations
   ggplot(aes(x = origin, fill = origin)) +
@@ -908,7 +908,7 @@ flights %>%
 ```
 
 Cancellation probablilty across different weather conditions
-```{r}
+```{r, echo = F}
 df_weather <- flights %>%
   mutate(is_cancelled = ifelse(is.na(dep_time), 1, 0)) %>%
   inner_join(weather, by = c("origin", "year", "month", "day", "hour")) %>%
@@ -945,7 +945,7 @@ ggplot(df_binned, aes(x = mean_val, y = cancel_rate)) +
 ## Model Building
 
 Create a subset of the data where it is just the cancelled flights. 
-```{r}
+```{r, echo = F}
 weather_flights <- flights %>%
   mutate(is_cancelled = ifelse(is.na(dep_time), 1, 0)) %>%
   inner_join(weather, by = c("origin", "year", "month", "day", "hour"))
@@ -955,7 +955,7 @@ weather_clean <- weather_flights %>%
 ```
 
 Initial logistic regression model
-```{r}
+```{r, echo = F}
 log_mod <- glm(is_cancelled ~ temp + dewp + humid + wind_speed + precip + pressure + visib, 
                data = weather_clean, 
                family = binomial(link = "logit"))
@@ -1027,7 +1027,7 @@ balanced_train <- bake(flight_recipe, new_data = NULL)
 ```
 
 Removed irrelevant variables from new model
-```{r}
+```{r, echo = F}
 improved_model <- glm(is_cancelled ~ humid + wind_speed + pressure + visib, 
                       data = balanced_train, 
                       family = binomial(link = "logit"))
@@ -1058,7 +1058,7 @@ recall <- conf_matrix[2,2] / sum(conf_matrix[,2])
 print(paste("Recall (Cancellations caught):", round(recall, 4)))
 ```
 
-```{r}
+```{r, echo = F}
 plot(improved_model, 
      which = 2, 
      main = "Q-Q Plot: Model Deviance Residuals") 
